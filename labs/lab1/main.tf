@@ -90,3 +90,8 @@ resource "azurerm_linux_virtual_machine" "vm-barak" {
 
   computer_name = "${var.myname}-vm"
 }
+
+output "vm_public_ip" {
+  value = azurerm_public_ip.pip-barak.ip_address
+  description = "Public IP address of the VM"
+}
