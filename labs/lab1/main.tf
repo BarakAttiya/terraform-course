@@ -1,3 +1,12 @@
+terraform {
+  required_providers {
+    time = {
+      source = "hashicorp/time"
+      version = "0.7.2"  # Ensure you're using the latest version
+    }
+  }
+}
+
 provider "azurerm" {
   features {}
 }
@@ -6,16 +15,55 @@ variable "location" {
   default = "East US"
 }
 
-variable "myname" {
-  default = "barak"
+resource "azurerm_resource_group" "rg" {
+  name     = "barak-resources"
+  location = var.location
 }
+
+
+resource "azurerm_subnet" "subnet" {
+  name                 = "barak-subnet"
+  resource_group_name  = azurerm_resource_group.rg.name
+  virtual_network_name = azurerm_virtual_network.vnet.name
+  address_prefixes     = ["10.0.1.0/24"]
+}
+
+
+resource "azurerm_virtual_network" "vnet" {
+  name                = "barak-vnet"
+  address_space       = ["10.0.0.0/16"]
+  location            = var.location
+  resource_group_name = azurerm_resource_group.rg.name
+}
+
+resource "azurerm_public_ip" "pip" {
+  name                = "barak-pip"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.rg.name
+  allocation_method   = "Dynamic"  # Dynamic IP allocation for Basic SKU
+  sku = "Basic"  # Use Basic SKU (Stock Keeping Unit - azure tiers) for dynamic IP
+}
+
+resource "azurerm_network_interface" "nic" {
+  name                = "barak-nic"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.rg.name
+
+  ip_configuration {
+    name                          = "barak-ipconfig"
+    subnet_id                     = azurerm_subnet.subnet.id
+    private_ip_address_allocation = "Dynamic"
+    public_ip_address_id          = azurerm_public_ip.pip.id
+  }
+}
+
 
 variable "vm_size" {
   default = "Standard_B1ms"
 }
 
 variable "admin_username" {
-  default = "adminuser-barak"
+  default = "adminuser"
 }
 
 variable "admin_password" {
@@ -23,55 +71,15 @@ variable "admin_password" {
 }
 
 
-resource "azurerm_resource_group" "rg-barak" {
-  name     = "${var.myname}-resources"
-  location = var.location
-}
-
-resource "azurerm_virtual_network" "vnet-barak" {
-  name                = "${var.myname}-vnet"
-  address_space       = ["10.0.0.0/16"]
-  location            = var.location
-  resource_group_name = azurerm_resource_group.rg-barak.name
-}
-
-resource "azurerm_subnet" "subnet-barak" {
-  name                 = "${var.myname}-subnet"
-  resource_group_name  = azurerm_resource_group.rg-barak.name
-  virtual_network_name = azurerm_virtual_network.vnet-barak.name
-  address_prefixes     = ["10.0.1.0/24"]
-}
-
-resource "azurerm_public_ip" "pip-barak" {
-  name                = "${var.myname}-pip"
-  location            = var.location
-  resource_group_name = azurerm_resource_group.rg-barak.name
-  allocation_method   = "Dynamic"  # Dynamic IP allocation for Basic SKU
-  sku = "Basic"  
-}
-
-resource "azurerm_network_interface" "nic-barak" {
-  name                = "${var.myname}-nic"
-  location            = var.location
-  resource_group_name = azurerm_resource_group.rg-barak.name
-
-  ip_configuration {
-    name                          = "${var.myname}-ipconfig"
-    subnet_id                     = azurerm_subnet.subnet-barak.id
-    private_ip_address_allocation = "Dynamic"
-    public_ip_address_id          = azurerm_public_ip.pip-barak.id
-  }
-}
-
-resource "azurerm_linux_virtual_machine" "vm-barak" {
-  name                  = "${var.myname}-vm"
+resource "azurerm_linux_virtual_machine" "vm" {
+  name                  = "barak-vm"
   location              = var.location
-  resource_group_name   = azurerm_resource_group.rg-barak.name
-  network_interface_ids = [azurerm_network_interface.nic-barak.id]
+  resource_group_name   = azurerm_resource_group.rg.name
+  network_interface_ids = [azurerm_network_interface.nic.id]
   size                  = var.vm_size
 
   os_disk {
-    name              = "${var.myname}-os-disk"
+    name              = "barak-os-disk"
     caching           = "ReadWrite"
     storage_account_type = "Standard_LRS"
   }
@@ -88,10 +96,28 @@ resource "azurerm_linux_virtual_machine" "vm-barak" {
     version   = "latest"
   }
 
-  computer_name = "${var.myname}-vm"
+  computer_name = "barak-vm"
+}
+
+resource "time_sleep" "wait_for_ip" {
+  create_duration = "30s"  # Wait for 30 seconds to allow Azure to allocate the IP
+}
+
+resource "null_resource" "validate_ip" {
+  provisioner "local-exec" {
+        command = <<EOT
+      if [ -z "${azurerm_public_ip.pip.ip_address}" ]; then
+        echo "ERROR: Public IP address was not assigned." >&2
+        exit 1
+      fi
+    EOT
+  }
+  depends_on = [ azurerm_public_ip.pip, time_sleep.wait_for_ip ]
 }
 
 output "vm_public_ip" {
-  value = azurerm_public_ip.pip-barak.ip_address
+  value       = azurerm_public_ip.pip.ip_address
+  depends_on  = [null_resource.validate_ip ]  
   description = "Public IP address of the VM"
 }
+
