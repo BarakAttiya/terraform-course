@@ -11,6 +11,10 @@ provider "azurerm" {
   features {}
 }
 
+variable "env_setting" {
+  default = "staging"
+}
+
 variable "location" {
   default = "East US"
 }
@@ -103,7 +107,10 @@ resource "time_sleep" "wait_for_ip" {
   create_duration = "30s"  # Wait for 30 seconds to allow Azure to allocate the IP
 }
 
-resource "null_resource" "validate_ip" {
+resource "null_resource" "validate_ip_new" {
+  triggers = {
+    env_setting = "production"
+  }
   provisioner "local-exec" {
         command = <<EOT
       if [ -z "${azurerm_public_ip.pip.ip_address}" ]; then
@@ -117,7 +124,7 @@ resource "null_resource" "validate_ip" {
 
 output "vm_public_ip" {
   value       = azurerm_public_ip.pip.ip_address
-  depends_on  = [null_resource.validate_ip ]  
+  depends_on  = [null_resource.validate_ip_new ]  
   description = "Public IP address of the VM"
 }
 
